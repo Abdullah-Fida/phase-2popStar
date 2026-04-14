@@ -1,0 +1,47 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Logs
+output/
+!output/phase2_api_tested.txt
+!output/buy_urls.txt
+!output/rent_urls.txt
+*.log
+last_id.txt
+
+# Environment
+.env
+venv/
+ENV/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Research & Temporary Test Scripts
+test_*.py
+debug_*.py
+dump_*.py
+parse_*.py
+research_*.py
+extract_*.py
+verify_*.py
+xpath_test.py
+listing_data_research.json
+script_*_research.txt
+*.html
+*.txt
+!README.md
+!requirements.txt
+!run_phase3.bat
+!phase1_scraper.py
+!phase2_check.py
+!phase3_scrape.py
+!phase3_5_filter.py
+!phase4_clean.py
+!phase5_api_check.py
+!phase6_categorize.py
+!phase7_filter_agencies.py
+!config.py
