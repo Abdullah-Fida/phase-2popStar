@@ -157,20 +157,20 @@ class ProperStarPhase1:
                             const selectors = ['.total-results', 'h1 + div', '.total-results span', '.breadcrumb-text + div'];
                             for (const s of selectors) {
                                 const el = document.querySelector(s);
-                                if (el && el.innerText.includes('result')) return el.innerText;
+                                if (el && (el.innerText.toLowerCase().includes('result') || el.innerText.toLowerCase().includes('résultat') || el.innerText.toLowerCase().includes('annonce'))) return el.innerText;
                             }
-                            // Don't use title as fallback if it looks like a generic/WAF title
                             const title = document.title;
-                            if (title && (title.includes('results') || title.includes('Properties'))) return title;
-                            const match = document.body.innerText.match(/(\d[\d,\.]*)\s+results/i);
+                            if (title && (title.toLowerCase().includes('result') || title.toLowerCase().includes('résultat') || title.toLowerCase().includes('properties') || title.toLowerCase().includes('propriété') || title.toLowerCase().includes('annonce'))) return title;
+                            const match = document.body.innerText.match(/(\d[\d,\.\s\']*)\s+(?:results|résultats|annonces)/i);
                             return match ? match[0] : '';
                         }""")
                         
                         total_results = 0
                         if results_text:
-                            match = re.search(r'([\d,\.\']+)', results_text)
+                            # Extract just the digits from strings like '1 234 résultats' or '1,234 results' or '1'234 annonces'
+                            match = re.search(r'([\d,\.\'"\s]+)(?:\s+(?:results|résultats|annonces))?', results_text, re.IGNORECASE)
                             if match:
-                                num_str = match.group(1).replace(',', '').replace('.', '').replace("'", "")
+                                num_str = match.group(1).replace(',', '').replace('.', '').replace("'", "").replace('"', '').replace(' ', '')
                                 try: total_results = int(num_str)
                                 except: total_results = 2001
                         elif await page.evaluate("() => !!document.querySelector('a[href*=\"/listing/\"], a[href*=\"/annonce/\"]')"):
