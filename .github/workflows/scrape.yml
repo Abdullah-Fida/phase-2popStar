@@ -12,9 +12,9 @@ on:
         required: true
         default: '100'
       workers:
-        description: 'Number of workers (Safe max: 4 for CI)'
+        description: 'Number of workers (Warning: >4 may cause crashes on standard GitHub nodes)'
         required: true
-        default: '4'
+        default: '8'
 
 jobs:
   scrape:
@@ -39,7 +39,7 @@ jobs:
       run: playwright install chromium
 
     - name: Run Phase 1 (URL Discovery)
-      run: python phase1_scraper.py --limit ${{ github.event.inputs.phase1_limit }} --concurrency 2
+      run: python phase1_scraper.py --limit ${{ github.event.inputs.phase1_limit }} --concurrency 4
 
     - name: Run Phase 2 (Availability Check)
       run: python phase2_check.py
