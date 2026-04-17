@@ -1,14 +1,16 @@
 name: ProperStar Scraper Pipeline
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
-      limit:
-        description: 'Number of listings to scrape'
+      phase1_limit:
+        description: 'Limit Phase 1 URLs to collect per mode (0 for ALL)'
         required: true
         default: '50'
+      phase3_limit:
+        description: 'Limit Phase 3 URLs to scrape (0 for ALL)'
+        required: true
+        default: '100'
       workers:
         description: 'Number of workers (Safe max: 4 for CI)'
         required: true
@@ -17,6 +19,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 360 # Max allowed by GitHub Actions (6 hours)
 
     steps:
     - name: Checkout repository
@@ -35,18 +38,30 @@ jobs:
     - name: Install Playwright Browsers
       run: playwright install chromium
 
-    - name: Run Scraper
-      # Use manual inputs or defaults
-      run: |
-        python phase3_scrape.py --limit ${{ github.event.inputs.limit || '50' }} --workers ${{ github.event.inputs.workers || '4' }}
+    - name: Run Phase 1 (URL Discovery)
+      run: python phase1_scraper.py --limit ${{ github.event.inputs.phase1_limit }} --concurrency 2
 
-    - name: Upload Results
-      if: always()
+    - name: Run Phase 2 (Availability Check)
+      run: python phase2_check.py
+
+    - name: Run Phase 3 (Detailed Scraping)
+      run: python phase3_scrape.py --limit ${{ github.event.inputs.phase3_limit }} --workers ${{ github.event.inputs.workers }}
+
+    - name: Run Phase 3.7 (Agency Cleanup)
+      run: python phase3_7_cleanup.py
+
+    - name: Run Phase 3.8 (Contact Deduplication)
+      run: python phase3_8_deduplicate.py
+
+    - name: Run Phase 5 (API Advertiser Check)
+      run: python phase5_api_check.py
+
+    - name: Run Phase 6 (Categorization)
+      run: python phase6_categorize.py
+
+    - name: Upload Complete Output Directory
+      if: always() # Ensure uploads even if a step crashes or times out!
       uses: actions/upload-artifact@v4
       with:
-        name: scraped-data
-        path: |
-          output/Objekte.csv
-          output/Kontakte.csv
-          output/phase3_scrape.log
-          output/phase3_rejected.csv
+        name: properstar-output-data
+        path: output/

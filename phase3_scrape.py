@@ -44,20 +44,30 @@ buy_url_set         = set()
 
 
 # ── ID Persistence ───────────────────────────────────────────────────────────
-def load_id_state():
-    global listing_id_counter, contact_id_counter
+def initialize_id_counter():
+    """Dynamically determine the highest external_id already saved to prevent overlap."""
+    global contact_id_counter, listing_id_counter
     start_id = getattr(config, 'START_ID', 300000)
-    listing_id_counter = start_id
     contact_id_counter = start_id
-    if os.path.exists(config.LAST_IDS_FILENAME):
-        with open(config.LAST_IDS_FILENAME, 'r') as f:
-            data = json.load(f)
-            listing_id_counter = data.get("listing_id", start_id)
-            contact_id_counter = data.get("contact_id", start_id)
-
-def save_id_state():
-    with open(config.LAST_IDS_FILENAME, 'w') as f:
-        json.dump({"listing_id": listing_id_counter, "contact_id": contact_id_counter}, f)
+    listing_id_counter = start_id
+    
+    if os.path.exists(config.KONTAKTE_FILENAME):
+        try:
+            with open(config.KONTAKTE_FILENAME, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                max_id = start_id
+                for row in reader:
+                    try:
+                        ext_id = int(row.get('external_id', 0))
+                        if ext_id > max_id:
+                            max_id = ext_id
+                    except ValueError:
+                        pass
+                contact_id_counter = max_id
+        except Exception as e:
+            logging.error(f"Failed to read highest ID from Kontakte.csv: {e}")
+            
+    logging.info(f"Initialized contact_id_counter to {contact_id_counter}")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -160,10 +170,18 @@ async def extract_listing_data(page, url):
         price_loc = page.locator('.listing-price-main span, .price')
         if await price_loc.count() > 0:
             price_text = (await price_loc.first.inner_text()).strip()
-            data['price']       = price_text
-            data['price_value'] = clean_price(price_text)
+            # Check if the price text is meaningful or just a placeholder
+            price_numeric = clean_price(price_text)
+            if price_numeric:
+                data['price']       = price_text
+                data['price_value'] = price_numeric
+            else:
+                # Price element exists but has no numeric value (e.g., "On request")
+                data['price']       = "Contact to get price"
+                data['price_value'] = None
         else:
-            data['price']       = ""
+            # No price element at all — must contact for price
+            data['price']       = "Contact to get price"
             data['price_value'] = None
 
         # ── 3. Description ───────────────────────────────────────────────────
@@ -221,8 +239,8 @@ async def extract_listing_data(page, url):
         
         # 5a. Primary: Structural JSON Parse from window.__INITIAL_STATE__
         try:
-            # Extract listing ID from URL (e.g., .../listing/12345)
-            id_match = re.search(r'/listing/(\d+)', url)
+            # Extract listing ID from URL (e.g., .../listing/12345 or /annonce/12345)
+            id_match = re.search(r'/(?:listing|annonce)/(\d+)', url)
             if id_match:
                 listing_id = id_match.group(1)
                 # Find the INITIAL_STATE script block
@@ -282,20 +300,26 @@ async def extract_listing_data(page, url):
                 if 'Living area' in k_t: data['living_space_area'] = v_t.replace(' m²', '').replace(',', '')
                 if 'Total'       in k_t: data['land_area']         = v_t.replace(' m²', '').replace(',', '')
 
-        # ── 7. Individual Contact (NOT agency) ───────────────────────────────
-        # The page has two sections:
-        #   .account-content.agent   → "Your contact"  ← we want THIS
-        #   .account-content.agency  → "Agency"        ← IGNORE
-        #
+        # ── 7. Individual Contact & Organization Name ───────────────────────────────
         # Name —— h4.account-name inside the AGENT section
         name_loc     = page.locator('.account-content.agent h4.account-name')
         contact_name = (await name_loc.first.inner_text()).strip() if await name_loc.count() > 0 else ""
 
-        if not contact_name:
-            logging.warning(f"No individual contact name — discarding {url}")
+        # ── 8. Organization / Agency Name ────────────────────────────────────
+        org_name = ""
+        org_loc = page.locator('.account-content.agency h4.account-name')
+        if await org_loc.count() > 0:
+            org_name = (await org_loc.first.inner_text()).strip()
+        else:
+            org_loc_fallback = page.locator('.account-content.agency .account-name')
+            if await org_loc_fallback.count() > 0:
+                org_name = (await org_loc_fallback.first.inner_text()).strip()
+
+        if not contact_name and not org_name:
+            logging.warning(f"No individual contact or org name — discarding {url}")
             return None
 
-        # Phone —— .agent-contacts-value inside the AGENT section
+        # Phone —— .agent-contacts-value inside the AGENT block
         phone_loc = page.locator('.account-content.agent .agent-contacts-value')
         phone     = (await phone_loc.first.inner_text()).strip() if await phone_loc.count() > 0 else ""
 
@@ -311,7 +335,7 @@ async def extract_listing_data(page, url):
                 except Exception as e:
                     logging.warning(f"Show button click failed for {url}: {e}")
 
-        # Fallback: check for a tel: link inside the agent section
+        # Fallback: check for a tel: link inside the AGENT block
         if not phone or '...' in phone or len(phone) < 5:
             tel_loc = page.locator('.account-content.agent a[href^="tel:"]')
             if await tel_loc.count() > 0:
@@ -328,10 +352,7 @@ async def extract_listing_data(page, url):
         data['last_name']   = name_parts[1] if len(name_parts) > 1 else ""
         data['contact_name']= contact_name
         data['phone']       = phone.strip()
-
-        # organization_name: intentionally blank — we only track individuals here.
-        # Phase 7 will further filter agency names.
-        data['organization_name'] = ""
+        data['organization_name'] = org_name
 
         return data
 
@@ -391,9 +412,10 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                         # Buy / Rent detection
                         is_buy = url in buy_url_set
 
-                        # Skip very cheap rent listings
+                        # Skip very cheap rent listings ONLY if price is known
+                        # If price_value is None ("Contact to get price"), always keep the listing
                         if (not is_buy
-                                and listing['price_value']
+                                and listing['price_value'] is not None
                                 and listing['price_value'] < config.MIN_RENT_CHF):
                             logging.info(
                                 f"Skipping low rent {url} ({listing['price_value']} CHF)"
@@ -405,7 +427,8 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                         else:
                             # ── Contact deduplication ──────────────────────
                             norm_phone  = normalize_phone(listing['phone'])
-                            contact_key = (norm_phone, listing['contact_name'].lower())
+                            hash_name   = listing['contact_name'] if listing['contact_name'] else listing['organization_name']
+                            contact_key = (norm_phone, hash_name.lower())
 
                             if contact_key not in seen_contacts:
                                 contact_id_counter += 1
@@ -439,7 +462,7 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                                 'detail_url':          url,
                                 'title':               listing.get('title', ''),
                                 'description':         listing.get('description', ''),
-                                'street':              listing.get('street', ''),
+                                'street':              listing.get('street', '')[:255],
                                 'house_number':        listing.get('house_number', ''),
                                 'zip_code':            listing.get('zip_code', ''),
                                 'city':                listing.get('city', ''),
@@ -451,7 +474,7 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                                 'rs_category_id':      '',
                                 'price_value':         listing.get('price_value', ''),
                                 'advertiser_id':       '',
-                                'advertisement_id':    '',
+                                'advertisement_id':    str(listing_id_counter),
                             })
                             logging.info(
                                 f"[W{worker_id}] OK: {listing['title']}"
@@ -496,7 +519,7 @@ async def main():
     parser.add_argument("--limit",   type=int, default=0,  help="Max URLs to process (0 = all)")
     args = parser.parse_args()
 
-    load_id_state()
+    initialize_id_counter()
 
     # Load buy URL set for type_id determination
     global buy_url_set
@@ -514,7 +537,7 @@ async def main():
         (config.PHASE3_REJECTED_FILENAME, ['url', 'reason']),
     ]:
         if not os.path.exists(filename):
-            with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
                 csv.DictWriter(f, fieldnames=columns).writeheader()
 
     # Load URLs from phase2 output
@@ -523,7 +546,10 @@ async def main():
         return
 
     with open(config.PHASE2_TESTED_FILENAME, 'r') as f:
-        all_urls = [line.strip() for line in f if '/listing/' in line]
+        all_urls = [line.strip() for line in f if '/listing/' in line or '/annonce/' in line]
+    
+    # No slice — process ALL remaining URLs (skip already-done via log)
+    logging.info(f"Loaded {len(all_urls)} total URLs from master list.")
 
     # Skip already-processed URLs (resume support)
     already_done = load_already_processed_urls()
@@ -562,25 +588,24 @@ async def main():
         while not queue.empty() or any(not t.done() for t in tasks):
             await asyncio.sleep(20)
             _flush(results_obj, results_con, results_rej)
-            save_id_state()
 
     def _flush(obj_buf, con_buf, rej_buf):
         if obj_buf:
-            with open(config.OBJEKTE_FILENAME, 'a', newline='', encoding='utf-8-sig') as f:
+            with open(config.OBJEKTE_FILENAME, 'a', newline='', encoding='utf-8') as f:
                 csv.DictWriter(
                     f, fieldnames=config.OBJEKTE_COLUMNS,
                     extrasaction='ignore', quoting=csv.QUOTE_ALL
                 ).writerows(obj_buf)
             obj_buf.clear()
         if con_buf:
-            with open(config.KONTAKTE_FILENAME, 'a', newline='', encoding='utf-8-sig') as f:
+            with open(config.KONTAKTE_FILENAME, 'a', newline='', encoding='utf-8') as f:
                 csv.DictWriter(
                     f, fieldnames=config.KONTAKTE_COLUMNS,
                     extrasaction='ignore', quoting=csv.QUOTE_ALL
                 ).writerows(con_buf)
             con_buf.clear()
         if rej_buf:
-            with open(config.PHASE3_REJECTED_FILENAME, 'a', newline='', encoding='utf-8-sig') as f:
+            with open(config.PHASE3_REJECTED_FILENAME, 'a', newline='', encoding='utf-8') as f:
                 csv.DictWriter(
                     f, fieldnames=['url', 'reason'],
                     extrasaction='ignore', quoting=csv.QUOTE_ALL
@@ -591,7 +616,6 @@ async def main():
     await asyncio.gather(*tasks)
     # Final flush after all workers finish
     _flush(results_obj, results_con, results_rej)
-    save_id_state()
     await saver_task
 
     logging.info("=== PHASE 3 COMPLETE ===")

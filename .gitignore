@@ -5,11 +5,11 @@ __pycache__/
 
 # Data & Logs
 output/
-!output/phase2_api_tested.txt
-!output/buy_urls.txt
-!output/rent_urls.txt
+output_*/
+backups/
+scratch/
 *.log
-last_id.txt
+last_id*.txt
 
 # Environment
 .env

@@ -1,21 +1,31 @@
 import csv
 import os
 import re
+import logging
 
 # ============================================================
 # SETTINGS
 # ============================================================
 OUTPUT_DIR = "output"
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(os.path.join(OUTPUT_DIR, "phase6_categorize.log"), mode='a', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+
 # Pick newest available phase input
-INPUT_OBJEKTE  = os.path.join(OUTPUT_DIR, "Objekte_phase5.csv")  if os.path.exists(os.path.join(OUTPUT_DIR, "Objekte_phase5.csv"))  else os.path.join(OUTPUT_DIR, "Objekte_phase4.csv")
-INPUT_KONTAKTE = os.path.join(OUTPUT_DIR, "Kontakte_phase5.csv") if os.path.exists(os.path.join(OUTPUT_DIR, "Kontakte_phase5.csv")) else os.path.join(OUTPUT_DIR, "Kontakte_phase4.csv")
+INPUT_OBJEKTE  = os.path.join(OUTPUT_DIR, "Objekte_phase5.csv")  if os.path.exists(os.path.join(OUTPUT_DIR, "Objekte_phase5.csv"))  else os.path.join(OUTPUT_DIR, "Objekte_phase3_8.csv")
+INPUT_KONTAKTE = os.path.join(OUTPUT_DIR, "Kontakte_phase5.csv") if os.path.exists(os.path.join(OUTPUT_DIR, "Kontakte_phase5.csv")) else os.path.join(OUTPUT_DIR, "Kontakte_phase3_8.csv")
 
 OUT_OBJEKTE  = os.path.join(OUTPUT_DIR, "Objekte_phase6.csv")
 OUT_KONTAKTE = os.path.join(OUTPUT_DIR, "Kontakte_phase6.csv")
 
-print(f"Reading Objekte from : {INPUT_OBJEKTE}")
-print(f"Reading Kontakte from: {INPUT_KONTAKTE}")
+logging.info(f"Reading Objekte from : {INPUT_OBJEKTE}")
+logging.info(f"Reading Kontakte from: {INPUT_KONTAKTE}")
 
 # ============================================================
 # CATEGORY → KEYWORDS MAPPING
@@ -142,45 +152,47 @@ def classify(title: str, url: str, description: str = "") -> int:
 # ============================================================
 def main():
     # ── Load and categorise Objekte ──────────────────────────
-    with open(INPUT_OBJEKTE, "r", encoding="utf-8-sig") as f:
+    with open(INPUT_OBJEKTE, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         fields = list(reader.fieldnames)
         rows   = list(reader)
 
     counts = {}
     for row in rows:
+        url = row.get("detail_url", "")
+
         # Category classification
         cat_id = classify(
             row.get("title", ""),
-            row.get("detail_url", ""),
+            url,
             row.get("description", "")
         )
         row["rs_category_id"] = str(cat_id)
         counts[cat_id] = counts.get(cat_id, 0) + 1
 
-        # Price formatting (CHF 1234567.-)
+        # Price formatting (CHF 1'234'567.-)
         p_val = row.get("price_value", "").strip()
-        if p_val and p_val.isdigit():
-            row["price"] = f"CHF {p_val}.-"
-        elif p_val:
-            # Handle cases where price_value might be float string (though usually int)
+        if p_val:
             try:
-                fv = int(float(p_val))
-                row["price"] = f"CHF {fv}.-"
-            except:
+                # Standardize to int
+                val_int = int(float(p_val))
+                # Swiss formatting: single quote as thousands separator
+                formatted = f"{val_int:,}".replace(",", "'")
+                row["price"] = f"CHF {formatted}.-"
+            except (ValueError, TypeError):
                 pass
 
         # Force correct IDs for the final product
         row["portal_id"] = "13"
         row["vendor_id"] = "7"
 
-    with open(OUT_OBJEKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(OUT_OBJEKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(rows)
 
     # ── Copy and format Kontakte ──────────────────────────────
-    with open(INPUT_KONTAKTE, "r", encoding="utf-8-sig") as f:
+    with open(INPUT_KONTAKTE, "r", encoding="utf-8") as f:
         reader      = csv.DictReader(f)
         k_fields    = list(reader.fieldnames)
         k_rows      = list(reader)
@@ -198,24 +210,24 @@ def main():
         base_for_norm = raw_np if raw_np else raw_p
         norm_val = normalize_phone(base_for_norm)
         
-        # Save back with Excel-friendly formatting
-        k_row['phone'] = f'="{raw_p}"' if raw_p else ""
-        k_row['normalized_phone'] = f'="{norm_val}"' if norm_val else ""
+        # Save back in plain CSV format without Excel formula wrapper
+        k_row['phone'] = raw_p if raw_p else ""
+        k_row['normalized_phone'] = norm_val if norm_val else ""
         
         # Force correct IDs for the final product
         k_row['portal_id'] = "13"
         k_row['vendor_id'] = "7"
 
-    with open(OUT_KONTAKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(OUT_KONTAKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=k_fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(k_rows)
 
     # ── Report ────────────────────────────────────────────────
-    print("\n=== PHASE 6: CATEGORY MAPPING COMPLETE ===")
-    print(f"Total Objekte processed : {len(rows)}")
-    print(f"Total Kontakte copied   : {len(k_rows)}")
-    print(f"\nCategory distribution:")
+    logging.info("=== PHASE 6: CATEGORY MAPPING COMPLETE ===")
+    logging.info(f"Total Objekte processed : {len(rows)}")
+    logging.info(f"Total Kontakte copied   : {len(k_rows)}")
+    logging.info("Category distribution:")
     
     # Category label lookup
     labels = {
@@ -234,11 +246,11 @@ def main():
     }
     for cat_id, count in sorted(counts.items(), key=lambda x: -x[1]):
         label = labels.get(cat_id, f"Category {cat_id}")
-        print(f"  [{cat_id:>3}] {label:<35} : {count}")
+        logging.info(f"  [{cat_id:>3}] {label:<35} : {count}")
 
-    print(f"\nOutput files written:")
-    print(f"  {OUT_OBJEKTE}")
-    print(f"  {OUT_KONTAKTE}")
+    logging.info("Output files written:")
+    logging.info(f"  {OUT_OBJEKTE}")
+    logging.info(f"  {OUT_KONTAKTE}")
 
 if __name__ == "__main__":
     main()

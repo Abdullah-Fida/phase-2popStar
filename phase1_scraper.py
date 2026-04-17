@@ -5,6 +5,7 @@ import logging
 import config
 import argparse
 import math
+import random
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from playwright_stealth import Stealth
 
@@ -42,8 +43,8 @@ async def solve_waf(page, mode_name="SCRAPER"):
                 break
         
         if is_blocked:
-            logging.info(f"[{mode_name}] WAF/Challenge detected (Attempt {i+1}/12). Waiting 3s...")
-            await asyncio.sleep(3)
+            logging.info(f"[{mode_name}] WAF/Challenge detected (Attempt {i+1}/12). Waiting 60s (COOLDOWN)...")
+            await asyncio.sleep(60) # Increased cooldown to let session settle
             # Try some basic interaction to help JS challenges
             try:
                 await page.mouse.move(100, 100)
@@ -115,7 +116,19 @@ class ProperStarPhase1:
                 
             logging.info(f"[{self.mode.upper()}] Loading Page {page_num}: {url}")
             
+            # Anti-detection Jitter
+            jitter = random.uniform(0.5, 3.0)
+            await asyncio.sleep(jitter)
+            
+            # User Agent Rotation
+            ua_list = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+            ]
+            
             page = await browser_context.new_page()
+            await page.set_extra_http_headers({"User-Agent": random.choice(ua_list)})
             await Stealth().apply_stealth_async(page)
             
             try:
@@ -129,7 +142,7 @@ class ProperStarPhase1:
 
                         # Wait for results to be sure
                         try:
-                            await page.wait_for_selector('a[href*="/listing/"]', timeout=10000)
+                            await page.wait_for_selector('a[href*="/listing/"], a[href*="/annonce/"]', timeout=10000)
                         except:
                             pass
                         
@@ -160,18 +173,18 @@ class ProperStarPhase1:
                                 num_str = match.group(1).replace(',', '').replace('.', '').replace("'", "")
                                 try: total_results = int(num_str)
                                 except: total_results = 2001
-                        elif await page.evaluate("() => !!document.querySelector('a[href*=\"/listing/\"]')"):
+                        elif await page.evaluate("() => !!document.querySelector('a[href*=\"/listing/\"], a[href*=\"/annonce/\"]')"):
                             total_results = 2001
 
                         urls = await page.evaluate("""() => {
-                            return Array.from(document.querySelectorAll('a[href*="/listing/"]'))
+                            return Array.from(document.querySelectorAll('a[href*="/listing/"], a[href*="/annonce/"]'))
                                         .map(a => a.getAttribute('href'));
                         }""")
                         
                         clean_urls = []
                         if urls:
                             for u in urls:
-                                if u and '/listing/' in u:
+                                if u and ('/listing/' in u or '/annonce/' in u):
                                     base = u.split('?')[0]
                                     if base.startswith('/'): base = "https://www.properstar.ch" + base
                                     clean_urls.append(base)
@@ -285,7 +298,7 @@ class ProperStarPhase1:
 
 async def main():
     parser = argparse.ArgumentParser(description="ProperStar Phase 1 Scraper (High Speed)")
-    parser.add_argument("--concurrency", type=int, default=4, help="Pages per mode (total = 2 * concurrency)")
+    parser.add_argument("--concurrency", type=int, default=2, help="Pages per mode (total = 2 * concurrency)")
     parser.add_argument("--limit", type=int, default=0, help="Stop after finding N URLs per mode")
     args = parser.parse_args()
 

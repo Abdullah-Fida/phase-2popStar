@@ -85,24 +85,24 @@ PRIVATE_KEYWORDS = [
 # OUTPUT SETTINGS
 # ============================================================
 OUTPUT_DIR = "output"
-OBJEKTE_FILENAME = os.path.join(OUTPUT_DIR, "Objekte.csv")
-KONTAKTE_FILENAME = os.path.join(OUTPUT_DIR, "Kontakte.csv")
-KONTAKTE_FILTERED_FILENAME = os.path.join(OUTPUT_DIR, "Kontakte_filtered.csv")
+OBJEKTE_FILENAME = os.path.join(OUTPUT_DIR, "Objekte_phase3.csv")
+KONTAKTE_FILENAME = os.path.join(OUTPUT_DIR, "Kontakte_phase3.csv")
+KONTAKTE_FILTERED_FILENAME = os.path.join(OUTPUT_DIR, "Kontakte_phase3_filtered.csv")
 LOG_FILENAME = os.path.join(OUTPUT_DIR, "scraper.log")
 
 # Specific Phase Files
-BUY_URLS_FILENAME = os.path.join(OUTPUT_DIR, "buy_urls.txt")
-RENT_URLS_FILENAME = os.path.join(OUTPUT_DIR, "rent_urls.txt")
-PHASE2_TESTED_FILENAME = os.path.join(OUTPUT_DIR, "phase2_api_tested.txt")
-PHASE2_REJECTED_FILENAME = os.path.join(OUTPUT_DIR, "phase2_rejected.txt")
+BUY_URLS_FILENAME = os.path.join(OUTPUT_DIR, "buy_urls_phase1.txt")
+RENT_URLS_FILENAME = os.path.join(OUTPUT_DIR, "rent_urls_phase1.txt")
+PHASE2_TESTED_FILENAME = os.path.join(OUTPUT_DIR, "urls_tested_phase2.txt")
+PHASE2_REJECTED_FILENAME = os.path.join(OUTPUT_DIR, "urls_rejected_phase2.txt")
 PHASE2_LOG_FILENAME = os.path.join(OUTPUT_DIR, "phase2_check.log")
-PHASE1_SCRAPER_LOG = os.path.join(OUTPUT_DIR, "scraper_activity.log")
+PHASE1_SCRAPER_LOG = os.path.join(OUTPUT_DIR, "phase1_scraper.log")
 PHASE3_LOG_FILENAME = os.path.join(OUTPUT_DIR, "phase3_scrape.log")
-PHASE3_REJECTED_FILENAME = os.path.join(OUTPUT_DIR, "phase3_rejected.csv")
+PHASE3_REJECTED_FILENAME = os.path.join(OUTPUT_DIR, "rejected_phase3.csv")
 LAST_IDS_FILENAME = os.path.join(OUTPUT_DIR, "last_ids.json")
 
 # CSV encoding
-CSV_ENCODING = "utf-8-sig"  # UTF-8 with BOM for Excel compatibility
+CSV_ENCODING = "utf-8"  # Standard UTF-8 without BOM as requested by client
 CSV_DELIMITER = ","
 
 # ============================================================

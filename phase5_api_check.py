@@ -12,8 +12,8 @@ import config
 API_URL     = "https://api.we-net.ch/api/advertisers/check"
 CONCURRENCY = 10      # simultaneous API calls
 
-INPUT_KONTAKTE = os.path.join(config.OUTPUT_DIR, "Kontakte_phase4.csv")
-INPUT_OBJEKTE  = os.path.join(config.OUTPUT_DIR, "Objekte_phase4.csv")
+INPUT_KONTAKTE = os.path.join(config.OUTPUT_DIR, "Kontakte_phase3_8.csv")
+INPUT_OBJEKTE  = os.path.join(config.OUTPUT_DIR, "Objekte_phase3_8.csv")
 
 OUT_KONTAKTE   = os.path.join(config.OUTPUT_DIR, "Kontakte_phase5.csv")
 OUT_OBJEKTE    = os.path.join(config.OUTPUT_DIR, "Objekte_phase5.csv")
@@ -34,30 +34,8 @@ logging.basicConfig(
     ]
 )
 
-# ============================================================
-# ID GENERATION
-# ============================================================
-def load_last_external_id() -> int:
-    """Load the highest existing external_id from Kontakte_phase4 so new IDs continue forward."""
-    max_id = 0
-    if os.path.exists(INPUT_KONTAKTE):
-        with open(INPUT_KONTAKTE, "r", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                try:
-                    val = int(row.get("external_id", 0))
-                    if val > max_id:
-                        max_id = val
-                except (ValueError, TypeError):
-                    pass
-    return max_id
-
-
+# ID Generation - No longer used, we preserve original IDs
 _next_id_counter = 0
-
-def get_next_external_id() -> str:
-    global _next_id_counter
-    _next_id_counter += 1
-    return str(_next_id_counter)
 
 
 # ============================================================
@@ -118,10 +96,10 @@ async def check_contact(session: aiohttp.ClientSession, contact: dict) -> dict:
                         logging.info(f"[{ext_id}] BLOCKED → drop")
                         return {"action": "drop", "advertiser_id": None}
 
-                    # Found + not blocked → skip contact, keep objects with advertiser_id
+                    # Found + not blocked → keep contact, keep objects, set advertiser_id
                     if data.get("found") is True:
                         adv_id = data.get("id")
-                        logging.info(f"[{ext_id}] FOUND (not blocked) → skip_contact, advertiser_id={adv_id}")
+                        logging.info(f"[{ext_id}] FOUND (not blocked) → keep_with_adv, advertiser_id={adv_id}")
                         return {"action": "skip_contact", "advertiser_id": adv_id}
 
                     # 200 but found=false → not found → keep
@@ -169,7 +147,7 @@ async def main():
         logging.error(f"Input file not found: {INPUT_KONTAKTE}")
         return
 
-    with open(INPUT_KONTAKTE, "r", encoding="utf-8-sig") as f:
+    with open(INPUT_KONTAKTE, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         kontakte_fields = list(reader.fieldnames)
         all_contacts = list(reader)
@@ -178,7 +156,7 @@ async def main():
     objekte_by_contact = {}
     objekte_fields = []
     if os.path.exists(INPUT_OBJEKTE):
-        with open(INPUT_OBJEKTE, "r", encoding="utf-8-sig") as f:
+        with open(INPUT_OBJEKTE, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             objekte_fields = list(reader.fieldnames)
             for row in reader:
@@ -189,9 +167,8 @@ async def main():
     if "advertiser_id" not in objekte_fields:
         objekte_fields = objekte_fields + ["advertiser_id"]
 
-    # ── Seed the ID counter above all existing IDs ───────────
-    _next_id_counter = load_last_external_id()
-    logging.info(f"ID counter seeded at {_next_id_counter} (will assign from {_next_id_counter + 1})")
+    # ── Progress Tracking ────────────────────────────────────
+    logging.info("ID preservation mode: Using existing external_ids from input.")
 
     # ── Resume: skip already-processed contacts ───────────────
     progress = load_progress()
@@ -219,19 +196,19 @@ async def main():
         adv_id = result.get("advertiser_id")
 
         if action == "keep":
-            new_ext_id = result.get("new_external_id", ext_id)
-            c["external_id"] = new_ext_id
+            # PRESERVE existing ID
             valid_contacts.append(c)
             for obj in objs:
                 obj = dict(obj)
-                obj["contact_external_id"] = new_ext_id
+                obj["contact_external_id"] = ext_id
                 valid_objekte.append(obj)
 
         elif action == "skip_contact":
-            # Objects kept but contact_external_id blanked, advertiser_id set
+            # UPDATE (New Logic): Keep contact, preserve contact_external_id, set advertiser_id
+            valid_contacts.append(c)
             for obj in objs:
                 obj = dict(obj)
-                obj["contact_external_id"] = ""
+                obj["contact_external_id"] = ext_id
                 obj["advertiser_id"] = str(adv_id) if adv_id else ""
                 valid_objekte.append(obj)
 
@@ -262,20 +239,19 @@ async def main():
             objs   = objekte_by_contact.get(ext_id, [])
 
             if action == "keep":
-                new_ext_id = get_next_external_id()
-                contact["external_id"] = new_ext_id
+                # PRESERVE existing ID
                 valid_contacts.append(contact)
                 for obj in objs:
                     obj = dict(obj)
-                    obj["contact_external_id"] = new_ext_id
+                    obj["contact_external_id"] = ext_id
                     valid_objekte.append(obj)
-                result["new_external_id"] = new_ext_id
 
             elif action == "skip_contact":
-                # Objects kept; contact_external_id cleared; advertiser_id set
+                # UPDATE (New Logic): Keep contact, preserve contact_external_id, set advertiser_id
+                valid_contacts.append(contact)
                 for obj in objs:
                     obj = dict(obj)
-                    obj["contact_external_id"] = ""
+                    obj["contact_external_id"] = ext_id
                     obj["advertiser_id"] = str(adv_id) if adv_id else ""
                     valid_objekte.append(obj)
 
@@ -301,27 +277,27 @@ async def main():
     # ── Write output files ────────────────────────────────────
 
     # Kontakte_phase5.csv — only "keep" contacts
-    with open(OUT_KONTAKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(OUT_KONTAKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=kontakte_fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(valid_contacts)
 
     # Objekte_phase5.csv — keep + skip_contact objects
-    with open(OUT_OBJEKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(OUT_OBJEKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=objekte_fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(valid_objekte)
 
     # rejected_kontakte_phase5.csv
     rej_k_fields = kontakte_fields + ["reject_reason"]
-    with open(REJ_KONTAKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(REJ_KONTAKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rej_k_fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(rej_contacts)
 
     # rejected_objekte_phase5.csv
     rej_o_fields = objekte_fields + ["reject_reason"]
-    with open(REJ_OBJEKTE, "w", newline="", encoding="utf-8-sig") as f:
+    with open(REJ_OBJEKTE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=rej_o_fields, extrasaction="ignore", quoting=csv.QUOTE_ALL)
         writer.writeheader()
         writer.writerows(rej_objekte)
@@ -333,7 +309,7 @@ async def main():
     logging.info("=" * 60)
     logging.info(f"  Contacts checked        : {len(all_contacts)}")
     logging.info(f"  ✅ Kept (not found)     : {len(valid_contacts)}")
-    logging.info(f"  ⏭️  Skip contact (found) : {sum(1 for r in progress.values() if r['action'] == 'skip_contact')}")
+    logging.info(f"  ☑️  Found & Updated      : {sum(1 for r in progress.values() if r['action'] == 'skip_contact')}")
     logging.info(f"  ❌ Dropped (blocked)    : {len(rej_contacts)}")
     logging.info(f"  ✅ Valid objects         : {len(valid_objekte)}")
     logging.info(f"  ❌ Rejected objects      : {len(rej_objekte)}")

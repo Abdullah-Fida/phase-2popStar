@@ -36,8 +36,11 @@ async def check_url(client, url, semaphore):
                 else:
                     logging.error(f"Error {response.status_code} for {url}: {response.text}")
             except Exception as e:
-                logging.error(f"Exception for {url} (Attempt {attempt+1}): {e}")
-                await asyncio.sleep(1)
+                # Catch more specific details if possible
+                err_type = type(e).__name__
+                logging.error(f"Exception for {url} (Attempt {attempt+1}): [{err_type}] {e}")
+                # Exponential backoff on retries
+                await asyncio.sleep(2 ** attempt)
         return None
 
 async def process_file(file_path, mode):
