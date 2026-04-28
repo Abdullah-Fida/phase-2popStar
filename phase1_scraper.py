@@ -69,6 +69,7 @@ class ProperStarPhase1:
         self.output_file = config.BUY_URLS_FILENAME if mode == "buy" else config.RENT_URLS_FILENAME
         self.scraped_urls = set()
         self.stop_requested = False
+        self.consecutive_empty = 0
         self.load_existing_urls()
         self.semaphore = asyncio.Semaphore(self.concurrency)
 
@@ -189,12 +190,12 @@ class ProperStarPhase1:
                                     if base.startswith('/'): base = "https://www.properstar.ch" + base
                                     clean_urls.append(base)
                         
-                        if not clean_urls:
+                        if not clean_urls and total_results > 0:
                             # Diagnostic: Save HTML if we see nothing but think we cleared WAF
                             debug_file = "debug_empty_results.html"
                             with open(debug_file, "w", encoding="utf-8") as df:
                                 df.write(await page.content())
-                            logging.warning(f"[{self.mode.upper()}] SELECTOR FAIL: Found 0 listing URLs. Saved HTML to {debug_file}")
+                            logging.warning(f"[{self.mode.upper()}] SELECTOR FAIL: Found {total_results} results but 0 listing URLs. Saved HTML to {debug_file}")
 
                         return total_results, list(set(clean_urls))
                         
@@ -269,8 +270,24 @@ class ProperStarPhase1:
                 continue
                 
             if total == 0:
+                self.consecutive_empty += 1
+                if self.consecutive_empty >= 10:
+                    logging.info(f"[{self.mode.upper()}] {self.consecutive_empty} consecutive empty buckets. Checking if any results exist above {min_price}...")
+                    # Perform a global check without max_price
+                    g_total, _ = await self.get_page_data(context, min_price, 0, 1)
+                    if g_total == 0:
+                        logging.info(f"[{self.mode.upper()}] Global check confirmed 0 results above {min_price}. Stopping early.")
+                        self.stop_requested = True
+                        break
+                    else:
+                        logging.info(f"[{self.mode.upper()}] Global check found {g_total} results. Continuing...")
+                        # Reset counter to give it more room
+                        self.consecutive_empty = 0
+
                 min_price = max_price + 1
                 continue
+            
+            self.consecutive_empty = 0
                 
             total_pages = min(math.ceil(total / 20), 100)
             logging.info(f"[{self.mode.upper()}] Bucket [{min_price} - {max_price}] has {total} results ({total_pages} pages)")
@@ -308,11 +325,21 @@ async def main():
         buy_scraper = ProperStarPhase1(mode="buy", start_min=0, max_limit=50000000, concurrency=args.concurrency)
         rent_scraper = ProperStarPhase1(mode="rent", start_min=0, max_limit=100000, concurrency=args.concurrency)
         
-        logging.info(f"Starting concurrent scrapers (Concurrency: {args.concurrency} per mode, Limit: {args.limit})")
-        await asyncio.gather(
-            buy_scraper.run(browser, limit=args.limit),
-            rent_scraper.run(browser, limit=args.limit)
-        )
+        logging.info(f"Starting concurrent scrapers (Concurrency: {args.concurrency} per mode, Limit: {args.limit}, Timeout: 2.5h)")
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    buy_scraper.run(browser, limit=args.limit),
+                    rent_scraper.run(browser, limit=args.limit)
+                ),
+                timeout=2.5 * 3600 # 2.5 hours
+            )
+        except asyncio.TimeoutError:
+            logging.warning("Phase 1 TIMEOUT reached (2.5 hours). Stopping scrapers...")
+            buy_scraper.stop_requested = True
+            rent_scraper.stop_requested = True
+            # Give it a moment to stop gracefully
+            await asyncio.sleep(5)
         
         await browser.close()
 
