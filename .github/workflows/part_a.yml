@@ -7,7 +7,7 @@ on:
 jobs:
   scrape_phase_1_2:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360 # Max allowed by GitHub Actions (6 hours)
 
     steps:
     - name: Checkout repository

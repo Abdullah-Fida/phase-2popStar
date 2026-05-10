@@ -6,6 +6,7 @@ import config
 import argparse
 import math
 import random
+import time
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from playwright_stealth import Stealth
 
@@ -262,6 +263,12 @@ class ProperStarPhase1:
             return # Finish immediately
             
         while min_price <= self.max_limit and not self.stop_requested:
+            # Check manual timeout to gracefully stop before GitHub Action timeout
+            if getattr(self, 'start_time', 0) > 0 and time.time() - self.start_time > getattr(self, 'timeout_seconds', 18000):
+                logging.info(f"[{self.mode.upper()}] Time limit reached. Stopping gracefully.")
+                self.stop_requested = True
+                break
+                
             # Find optimal max_price
             max_price, total, step = await self.find_optimal_step(context, min_price, step, limit=limit)
             
@@ -326,23 +333,22 @@ async def main():
         buy_scraper = ProperStarPhase1(mode="buy", start_min=0, max_limit=50000000, concurrency=args.concurrency)
         rent_scraper = ProperStarPhase1(mode="rent", start_min=0, max_limit=100000, concurrency=args.concurrency)
         
-        logging.info(f"Starting concurrent scrapers (Concurrency: {args.concurrency} per mode, Limit: {args.limit}, Timeout: 2.5h)")
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(
-                    buy_scraper.run(browser, limit=args.limit),
-                    rent_scraper.run(browser, limit=args.limit)
-                ),
-                timeout=2.5 * 3600 # 2.5 hours
-            )
-        except asyncio.TimeoutError:
-            logging.warning("Phase 1 TIMEOUT reached (2.5 hours). Stopping scrapers...")
-            buy_scraper.stop_requested = True
-            rent_scraper.stop_requested = True
-            # Give it a moment to stop gracefully
-            await asyncio.sleep(5)
+        timeout_hours = 5.0
+        buy_scraper.start_time = time.time()
+        buy_scraper.timeout_seconds = timeout_hours * 3600
+        rent_scraper.start_time = buy_scraper.start_time
+        rent_scraper.timeout_seconds = buy_scraper.timeout_seconds
         
-        await browser.close()
+        logging.info(f"Starting concurrent scrapers (Concurrency: {args.concurrency} per mode, Limit: {args.limit}, Timeout: {timeout_hours}h)")
+        try:
+            await asyncio.gather(
+                buy_scraper.run(browser, limit=args.limit),
+                rent_scraper.run(browser, limit=args.limit)
+            )
+        except Exception as e:
+            logging.error(f"Error during Phase 1: {e}")
+        finally:
+            await browser.close()
 
 if __name__ == "__main__":
     try:
