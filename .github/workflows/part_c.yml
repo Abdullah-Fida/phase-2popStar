@@ -30,17 +30,17 @@ jobs:
     - name: Install Playwright Browsers
       run: playwright install chromium
 
+    - name: Download all Supabase data to CSV (for ID initialization)
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: python -c "import supabase_helper; supabase_helper.download_to_csv()"
+
     - name: Run Phase 3 (Continue Scrape & Save to Supabase LIVE)
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       run: python phase3_scrape.py --workers 8 --supabase
-
-    - name: Download all Supabase data to CSV
-      env:
-        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-      run: python -c "import supabase_helper; supabase_helper.download_to_csv()"
 
     - name: Run Phase 3.7 (Agency Cleanup)
       run: python phase3_7_cleanup.py
