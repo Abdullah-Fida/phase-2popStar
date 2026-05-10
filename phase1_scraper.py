@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 from playwright_stealth import Stealth
 
 # Set up logging
+os.makedirs(os.path.dirname(config.PHASE1_SCRAPER_LOG), exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
