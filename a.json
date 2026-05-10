@@ -1,0 +1,199 @@
+{
+    "name": "Google Sheets WhatsApp Status Bot",
+    "nodes": [
+        {
+            "parameters": {
+                "pollTimes": {
+                    "item": [
+                        {
+                            "mode": "everyMinute"
+                        }
+                    ]
+                },
+                "triggerOn": "anyUpdate",
+                "documentId": {
+                    "value": "YOUR_GOOGLE_SHEET_ID"
+                },
+                "sheetName": {
+                    "value": "Sheet1"
+                },
+                "options": {}
+            },
+            "name": "Google Sheets Trigger",
+            "type": "n8n-nodes-base.googleSheetsTrigger",
+            "typeVersion": 1,
+            "position": [
+                240,
+                300
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "name": "Google Sheets Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false
+                    },
+                    "conditions": [
+                        {
+                            "leftValue": "={{ $json.STATUS }}",
+                            "rightValue": "Completed",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        },
+                        {
+                            "leftValue": "={{ $json.NOTIFIED }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                }
+            },
+            "name": "Status Completed & Not Notified?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [
+                460,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "jsCode": "const raw = $input.item.json['CONTACT NO'] || '';\nconst digits = raw.replace(/[^0-9]/g, '');\nlet formatted;\nif (digits.startsWith('92')) {\n  formatted = digits;\n} else if (digits.startsWith('0')) {\n  formatted = '92' + digits.slice(1);\n} else {\n  formatted = '92' + digits;\n}\nreturn [{ json: { ...$input.item.json, formatted_phone: formatted } }];"
+            },
+            "name": "Format Phone Number",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                680,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://graph.facebook.com/v19.0/1051951798009335/messages",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "Bearer YOUR_ACCESS_TOKEN"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "body": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.formatted_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"Assalam o Alaikum *{{ $json.OWNER }}*,\\n\\n✅ Your work has been completed at *Zaheer Associates*.\\n\\n📋 *Details:*\\nPlot No: {{ $json['PLOT NO'] }}\\nBlock: {{ $json.BLOCK }}\\nSize: {{ $json.SIZE }} Marla\\nFile No: {{ $json['R.NO'] }}\\n\\n🏢 Please visit our office to collect your documents.\\n\\nThank you for choosing Zaheer Associates! 🙏\"\n  }\n}",
+                "options": {}
+            },
+            "name": "Send WhatsApp Message",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
+            "position": [
+                900,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "documentId": {
+                    "value": "YOUR_GOOGLE_SHEET_ID"
+                },
+                "sheetName": {
+                    "value": "Sheet1"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "NOTIFIED": "YES",
+                        "NOTIFIED DATE": "={{ $now.format('dd/MM/yyyy HH:mm') }}"
+                    }
+                },
+                "where": {
+                    "values": [
+                        {
+                            "lookupColumn": "SR #",
+                            "lookupValue": "={{ $('Format Phone Number').item.json['SR #'] }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Mark As Notified",
+            "type": "n8n-nodes-base.googleSheets",
+            "typeVersion": 4,
+            "position": [
+                1120,
+                300
+            ],
+            "credentials": {
+                "googleSheetsOAuth2Api": {
+                    "name": "Google Sheets Account"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Google Sheets Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Status Completed & Not Notified?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Status Completed & Not Notified?": {
+            "main": [
+                [
+                    {
+                        "node": "Format Phone Number",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "Format Phone Number": {
+            "main": [
+                [
+                    {
+                        "node": "Send WhatsApp Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send WhatsApp Message": {
+            "main": [
+                [
+                    {
+                        "node": "Mark As Notified",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

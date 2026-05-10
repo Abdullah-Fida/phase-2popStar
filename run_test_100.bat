@@ -6,7 +6,8 @@ echo   PROPERSTAR DATA PIPELINE - 100 URL TEST RUN
 echo ============================================================
 
 echo [*] Safely backing up previous output directory...
-python -c "import os, datetime; ts = datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M%%S'); os.rename('output', 'output_backup_'+ts) if os.path.exists('output') else None"
+mkdir backups 2>nul
+python -c "import os, datetime; ts = datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M%%S'); os.rename('output', 'backups/output_backup_'+ts) if os.path.exists('output') else None"
 mkdir output 2>nul
 
 :: 1. Configuration Check

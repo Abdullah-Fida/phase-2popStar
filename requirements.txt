@@ -2,3 +2,5 @@ playwright
 playwright-stealth
 beautifulsoup4
 lxml
+
+supabase

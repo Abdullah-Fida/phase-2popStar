@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import config
+import argparse
+import supabase_helper
 from datetime import datetime
 
 # Setup logging
@@ -95,13 +97,35 @@ async def process_file(file_path, mode):
     logging.info(f"Rejected (Exists): {rejected_count}")
     logging.info(f"Errors: {error_count}")
     logging.info(f"New URLs saved to {new_file}")
+    
+    return urls, results
 
 async def main():
+    parser = argparse.ArgumentParser(description="Phase 2 - URL Availability Check")
+    parser.add_argument("--supabase", action="store_true", help="Upload valid URLs to Supabase")
+    args = parser.parse_args()
+
     # Process Buy URLs
-    await process_file(config.BUY_URLS_FILENAME, "buy")
+    buy_urls, buy_results = await process_file(config.BUY_URLS_FILENAME, "buy")
+    if args.supabase and buy_urls:
+        valid_buy = [u for u, res in zip(buy_urls, buy_results) if res and res.get("exists") is False]
+        if valid_buy:
+            run_date = datetime.utcnow().isoformat()
+            try:
+                supabase_helper.upload_urls(valid_buy, "buy", run_date)
+            except Exception as e:
+                logging.error(f"Failed to upload buy URLs to Supabase: {e}")
     
     # Process Rent URLs
-    await process_file(config.RENT_URLS_FILENAME, "rent")
+    rent_urls, rent_results = await process_file(config.RENT_URLS_FILENAME, "rent")
+    if args.supabase and rent_urls:
+        valid_rent = [u for u, res in zip(rent_urls, rent_results) if res and res.get("exists") is False]
+        if valid_rent:
+            run_date = datetime.utcnow().isoformat()
+            try:
+                supabase_helper.upload_urls(valid_rent, "rent", run_date)
+            except Exception as e:
+                logging.error(f"Failed to upload rent URLs to Supabase: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())

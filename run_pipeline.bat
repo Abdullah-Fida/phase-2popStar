@@ -7,7 +7,8 @@ echo ============================================================
 
 :: 1. Configuration Check
 echo [*] Safely backing up previous output directory...
-python -c "import os, datetime; ts = datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M%%S'); os.rename('output', 'output_backup_'+ts) if os.path.exists('output') else None"
+mkdir backups 2>nul
+python -c "import os, datetime; ts = datetime.datetime.now().strftime('%%Y%%m%%d_%%H%%M%%S'); os.rename('output', 'backups/output_backup_'+ts) if os.path.exists('output') else None"
 mkdir output 2>nul
 
 echo [*] Checking dependencies...

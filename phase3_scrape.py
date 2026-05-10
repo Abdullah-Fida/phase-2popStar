@@ -23,6 +23,7 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 import config
+import supabase_helper
 
 # ── Logging ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -434,7 +435,7 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                                 contact_id_counter += 1
                                 c_id = str(contact_id_counter)
                                 seen_contacts[contact_key] = c_id
-                                results_con.append({
+                                contact_obj = {
                                     'external_id':       c_id,
                                     'first_name':        listing['first_name'],
                                     'last_name':         listing['last_name'],
@@ -448,13 +449,19 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                                     'normalized_phone':  norm_phone,
                                     'portal_id':         config.PORTAL_ID,
                                     'vendor_id':         config.VENDOR_ID,
-                                })
+                                }
+                                results_con.append(contact_obj)
+                                if use_supabase:
+                                    try:
+                                        supabase_helper.save_contact(contact_obj)
+                                    except Exception as e:
+                                        logging.error(f"[W{worker_id}] Supabase save_contact failed: {e}")
 
                             c_ext_id = seen_contacts[contact_key]
 
                             # ── Listing record ─────────────────────────────
                             listing_id_counter += 1
-                            results_obj.append({
+                            listing_obj = {
                                 'contact_external_id': c_ext_id,
                                 'portal_id':           config.PORTAL_ID,
                                 'vendor_id':           config.VENDOR_ID,
@@ -475,7 +482,15 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                                 'price_value':         listing.get('price_value', ''),
                                 'advertiser_id':       '',
                                 'advertisement_id':    str(listing_id_counter),
-                            })
+                            }
+                            results_obj.append(listing_obj)
+                            if use_supabase:
+                                try:
+                                    supabase_helper.save_listing(listing_obj)
+                                    supabase_helper.mark_url_done(url)
+                                except Exception as e:
+                                    logging.error(f"[W{worker_id}] Supabase save_listing/mark_url_done failed: {e}")
+                                    
                             logging.info(
                                 f"[W{worker_id}] OK: {listing['title']}"
                                 f" | {listing['first_name']} {listing['last_name']}"
@@ -483,10 +498,20 @@ async def worker(queue, results_obj, results_con, results_rej, semaphore, worker
                             )
                     else:
                         results_rej.append({'url': url, 'reason': 'No valid contact or load failure'})
+                        if use_supabase:
+                            try:
+                                supabase_helper.mark_url_failed(url)
+                            except Exception as e:
+                                logging.error(f"[W{worker_id}] Supabase mark_url_failed failed: {e}")
 
                 except Exception as e:
                     logging.error(f"[W{worker_id}] Exception for {url}: {e}")
                     results_rej.append({'url': url, 'reason': f"Worker exception: {e}"})
+                    if use_supabase:
+                        try:
+                            supabase_helper.mark_url_failed(url)
+                        except Exception as sup_e:
+                            logging.error(f"[W{worker_id}] Supabase mark_url_failed failed: {sup_e}")
                 finally:
                     await page.close()
 
@@ -517,7 +542,11 @@ async def main():
     parser = argparse.ArgumentParser(description="Phase 3 — ProperStar listing scraper")
     parser.add_argument("--workers", type=int, default=14, help="Number of parallel browser workers")
     parser.add_argument("--limit",   type=int, default=0,  help="Max URLs to process (0 = all)")
+    parser.add_argument("--supabase", action="store_true", help="Enable Supabase resume/save mode")
     args = parser.parse_args()
+
+    global use_supabase
+    use_supabase = args.supabase
 
     initialize_id_counter()
 
@@ -540,28 +569,54 @@ async def main():
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 csv.DictWriter(f, fieldnames=columns).writeheader()
 
-    # Load URLs from phase2 output
-    if not os.path.exists(config.PHASE2_TESTED_FILENAME):
-        logging.error(f"Input file not found: {config.PHASE2_TESTED_FILENAME}")
-        return
+    if use_supabase:
+        logging.info("Supabase mode enabled: fetching pending URLs...")
+        # 1. Fetch ALL urls from Supabase to rebuild buy_url_set (we still need this to know if it's buy or rent)
+        # 2. Fetch PENDING urls for processing
+        try:
+            all_db_urls = supabase_helper.fetch_all_urls()
+            # Overwrite global buy_url_set based on Supabase type='buy'
+            global buy_url_set
+            buy_url_set = {row['url'] for row in all_db_urls if row.get('type') == 'buy'}
+            logging.info(f"Supabase mode: Rebuilt buy_url_set with {len(buy_url_set)} items.")
 
-    with open(config.PHASE2_TESTED_FILENAME, 'r') as f:
-        all_urls = [line.strip() for line in f if '/listing/' in line or '/annonce/' in line]
-    
-    # No slice — process ALL remaining URLs (skip already-done via log)
-    logging.info(f"Loaded {len(all_urls)} total URLs from master list.")
+            # Filter only pending
+            pending_db_rows = [r for r in all_db_urls if r.get('status') == 'pending']
+            urls = [row['url'] for row in pending_db_rows]
+            logging.info(f"Supabase mode: Found {len(urls)} PENDING URLs to scrape.")
+            
+            # Since Supabase manages state, we don't strictly need local log resume, 
+            # but we can still exclude any we just scraped this session if the queue gets messed up.
+            already_done = load_already_processed_urls()
+            urls = [u for u in urls if u not in already_done]
+            logging.info(f"Remaining after local log check: {len(urls)}")
+            
+        except Exception as e:
+            logging.error(f"Failed to fetch URLs from Supabase: {e}")
+            return
+            
+    else:
+        # ── Old Local File Logic ──
+        if not os.path.exists(config.PHASE2_TESTED_FILENAME):
+            logging.error(f"Input file not found: {config.PHASE2_TESTED_FILENAME}")
+            return
 
-    # Skip already-processed URLs (resume support)
-    already_done = load_already_processed_urls()
-    urls = [u for u in all_urls if u not in already_done]
+        with open(config.PHASE2_TESTED_FILENAME, 'r') as f:
+            all_urls = [line.strip() for line in f if '/listing/' in line or '/annonce/' in line]
+        
+        logging.info(f"Loaded {len(all_urls)} total URLs from master list.")
+
+        # Skip already-processed URLs (resume support)
+        already_done = load_already_processed_urls()
+        urls = [u for u in all_urls if u not in already_done]
+
+        logging.info(
+            f"Total: {len(all_urls)} | Done: {len(already_done)} | Remaining: {len(urls)}"
+        )
 
     if args.limit > 0:
         urls = urls[:args.limit]
         logging.info(f"LIMIT: processing first {args.limit} remaining URLs.")
-
-    logging.info(
-        f"Total: {len(all_urls)} | Done: {len(already_done)} | Remaining: {len(urls)}"
-    )
 
     global total_url_count
     total_url_count = len(urls)
