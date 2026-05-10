@@ -2,7 +2,7 @@ name: ProperStar Part B - Scrape Main
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * 1' # Runs at 2 AM UTC on Mondays
+    - cron: '56 0 * * *' # Runs at 00:56 UTC daily (6 hours after part A)
 
 jobs:
   scrape_phase_3_run_1:
