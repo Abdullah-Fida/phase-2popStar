@@ -96,12 +96,22 @@ def fetch_pending_urls() -> list[dict]:
 def fetch_all_urls() -> list[dict]:
     """Return ALL rows (pending + done) — used to rebuild buy_url_set in Part C."""
     sb = get_client()
-    response = _retry(
-        lambda: sb.table("phase2_urls")
-                  .select("id,url,type,status")
-                  .execute()
-    )
-    return response.data or []
+    all_rows = []
+    offset = 0
+    page_size = 1000
+    while True:
+        resp = _retry(
+            lambda o=offset: sb.table("phase2_urls")
+                               .select("id,url,type,status")
+                               .range(o, o + page_size - 1)
+                               .execute()
+        )
+        chunk = resp.data or []
+        all_rows.extend(chunk)
+        if len(chunk) < page_size:
+            break
+        offset += page_size
+    return all_rows
 
 
 def mark_url_done(url: str):
