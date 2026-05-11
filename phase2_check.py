@@ -3,6 +3,7 @@ import httpx
 import json
 import logging
 import os
+import sys
 import config
 import argparse
 import supabase_helper
@@ -48,7 +49,7 @@ async def check_url(client, url, semaphore):
 async def process_file(file_path, mode):
     if not os.path.exists(file_path):
         logging.error(f"File not found: {file_path}")
-        return
+        return [], []
 
     new_file = config.PHASE2_TESTED_FILENAME
     rejected_file = config.PHASE2_REJECTED_FILENAME
@@ -115,6 +116,7 @@ async def main():
                 supabase_helper.upload_urls(valid_buy, "buy", run_date)
             except Exception as e:
                 logging.error(f"Failed to upload buy URLs to Supabase: {e}")
+                sys.exit(1)
     
     # Process Rent URLs
     rent_urls, rent_results = await process_file(config.RENT_URLS_FILENAME, "rent")
@@ -126,6 +128,7 @@ async def main():
                 supabase_helper.upload_urls(valid_rent, "rent", run_date)
             except Exception as e:
                 logging.error(f"Failed to upload rent URLs to Supabase: {e}")
+                sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())

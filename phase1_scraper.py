@@ -1,6 +1,7 @@
 import asyncio
 import re
 import os
+import sys
 import logging
 import config
 import argparse
@@ -347,6 +348,7 @@ async def main():
             )
         except Exception as e:
             logging.error(f"Error during Phase 1: {e}")
+            sys.exit(1)
         finally:
             await browser.close()
 

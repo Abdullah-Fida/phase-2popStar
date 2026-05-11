@@ -576,7 +576,6 @@ async def main():
         try:
             all_db_urls = supabase_helper.fetch_all_urls()
             # Overwrite global buy_url_set based on Supabase type='buy'
-            global buy_url_set
             buy_url_set = {row['url'] for row in all_db_urls if row.get('type') == 'buy'}
             logging.info(f"Supabase mode: Rebuilt buy_url_set with {len(buy_url_set)} items.")
 
@@ -593,7 +592,8 @@ async def main():
             
         except Exception as e:
             logging.error(f"Failed to fetch URLs from Supabase: {e}")
-            return
+            import sys
+            sys.exit(1)
             
     else:
         # ── Old Local File Logic ──
