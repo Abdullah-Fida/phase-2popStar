@@ -32,8 +32,8 @@ jobs:
 
     - name: Run Phase 3 (Scrape & Save to Supabase LIVE)
       env:
-        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        SUPABASE_URL: https://awesbiwvmehnlopbhmya.supabase.co
+        SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3ZXNiaXd2bWVobmxvcGJobXlhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODQxNTc2NywiZXhwIjoyMDkzOTkxNzY3fQ.enWFYD4-z1GQ9Lj1PXZYBeC5wda3a3VdWjB-nWmw1sI
       # We know this won't finish, it will timeout at 360m but save live to DB
       run: python phase3_scrape.py --workers 8 --supabase
 
