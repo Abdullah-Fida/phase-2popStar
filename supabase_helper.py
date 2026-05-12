@@ -243,7 +243,6 @@ def save_scraper_state(max_listing_id: int, max_contact_id: int):
 def clear_all_supabase_data():
     """
     Delete all rows from scraped_listings, scraped_contacts, and phase2_urls (except metadata).
-    Uses chunked deletes to avoid PostgREST limits.
     """
     sb = get_client()
     tables = [
@@ -254,21 +253,20 @@ def clear_all_supabase_data():
     
     for table, pk_col in tables:
         logging.info(f"Clearing table {table}...")
-        while True:
-            # For phase2_urls, we MUST exclude the metadata row
-            query = sb.table(table).select(pk_col).limit(1000)
+        # Broad delete with neq filter to catch everything
+        try:
+            query = sb.table(table).delete()
             if table == "phase2_urls":
                 query = query.neq("url", "STATE_METADATA")
+            else:
+                query = query.neq(pk_col, "IMPOSSIBLE_VAL_999")
             
-            resp = _retry(lambda q=query: q.execute())
-            if not resp.data:
-                break
+            _retry(lambda q=query: q.execute())
+            logging.info(f"  Cleanup command sent to {table}.")
+        except Exception as e:
+            logging.error(f"  Failed to clear {table}: {e}")
             
-            pks = [row[pk_col] for row in resp.data]
-            _retry(lambda t=table, pk=pk_col, keys=pks: sb.table(t).delete().in_(pk, keys).execute())
-            logging.info(f"  Deleted {len(pks)} rows from {table}.")
-            
-    logging.info("All Supabase tracking data cleared successfully!")
+    logging.info("Supabase cleanup process finished!")
 
 
 # ── Internal utilities ────────────────────────────────────────────────────────
