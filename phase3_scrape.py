@@ -49,6 +49,15 @@ def initialize_id_counter():
     """Dynamically determine the highest external_id already saved to prevent overlap."""
     global contact_id_counter, listing_id_counter
     start_id = getattr(config, 'START_ID', 300000)
+    
+    if use_supabase:
+        try:
+            listing_id_counter, contact_id_counter = supabase_helper.get_scraper_state()
+            logging.info(f"Loaded from Supabase scraper_state: contact_id={contact_id_counter}, listing_id={listing_id_counter}")
+            return
+        except Exception as e:
+            logging.error(f"Failed to load scraper_state from Supabase: {e}")
+
     contact_id_counter = start_id
     listing_id_counter = start_id
     
@@ -67,8 +76,24 @@ def initialize_id_counter():
                 contact_id_counter = max_id
         except Exception as e:
             logging.error(f"Failed to read highest ID from Kontakte.csv: {e}")
+
+    if os.path.exists(config.OBJEKTE_FILENAME):
+        try:
+            with open(config.OBJEKTE_FILENAME, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                max_id = start_id
+                for row in reader:
+                    try:
+                        ext_id = int(row.get('advertisement_id', 0))
+                        if ext_id > max_id:
+                            max_id = ext_id
+                    except ValueError:
+                        pass
+                listing_id_counter = max_id
+        except Exception as e:
+            logging.error(f"Failed to read highest ID from Objekte.csv: {e}")
             
-    logging.info(f"Initialized contact_id_counter to {contact_id_counter}")
+    logging.info(f"Initialized contact_id_counter to {contact_id_counter}, listing_id_counter to {listing_id_counter}")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

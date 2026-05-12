@@ -2,7 +2,7 @@ name: ProperStar Part A - Discovery
 on:
   workflow_dispatch:
   schedule:
-    - cron: '56 18 * * *' # Runs at 18:56 UTC daily
+    - cron: '07 06 * * *' # Runs at 06:07 UTC daily (11:07 AM local)
 
 jobs:
   scrape_phase_1_2:

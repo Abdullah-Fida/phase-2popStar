@@ -2,7 +2,7 @@ name: ProperStar Part C - Finish and Formatting
 on:
   workflow_dispatch:
   schedule:
-    - cron: '56 6 * * *' # Runs at 06:56 UTC daily (6 hours after part B)
+    - cron: '07 18 * * *' # Runs at 18:07 UTC daily (12 hours after part A)
 
 jobs:
   scrape_phase_3_finish:
@@ -53,6 +53,12 @@ jobs:
 
     - name: Run Phase 6 (Categorization)
       run: python phase6_categorize.py
+
+    - name: Run Phase 7 (Save State & Clear DB)
+      env:
+        SUPABASE_URL: https://awesbiwvmehnlopbhmya.supabase.co
+        SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3ZXNiaXd2bWVobmxvcGJobXlhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODQxNTc2NywiZXhwIjoyMDkzOTkxNzY3fQ.enWFYD4-z1GQ9Lj1PXZYBeC5wda3a3VdWjB-nWmw1sI
+      run: python phase7_reset.py
 
     - name: Upload Final Complete Data
       if: always()

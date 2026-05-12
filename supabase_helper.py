@@ -195,6 +195,75 @@ def download_to_csv():
     return len(listings), len(contacts)
 
 
+# ── PART D — State and Cleanup ───────────────────────────────────────────────
+
+def get_scraper_state() -> tuple[int, int]:
+    """
+    Fetch the highest listing_id and contact_id from the scraper_state table.
+    Returns (max_listing_id, max_contact_id).
+    """
+    sb = get_client()
+    try:
+        response = _retry(
+            lambda: sb.table("scraper_state").select("*").eq("id", 1).execute()
+        )
+        data = response.data
+        if data:
+            row = data[0]
+            max_list = int(row.get("max_listing_id", getattr(config, 'START_ID', 300000)))
+            max_cont = int(row.get("max_contact_id", getattr(config, 'START_ID', 300000)))
+            return max_list, max_cont
+    except Exception as e:
+        logging.error(f"Could not read scraper_state: {e}")
+    
+    start_val = getattr(config, 'START_ID', 300000)
+    return start_val, start_val
+
+
+def save_scraper_state(max_listing_id: int, max_contact_id: int):
+    """
+    Save the highest listing_id and contact_id to the scraper_state table.
+    """
+    sb = get_client()
+    try:
+        _retry(
+            lambda: sb.table("scraper_state").upsert({
+                "id": 1,
+                "max_listing_id": max_listing_id,
+                "max_contact_id": max_contact_id
+            }).execute()
+        )
+        logging.info(f"Saved scraper_state: max_listing_id={max_listing_id}, max_contact_id={max_contact_id}")
+    except Exception as e:
+        logging.error(f"Could not save scraper_state: {e}")
+
+
+def clear_all_supabase_data():
+    """
+    Delete all rows from scraped_listings, scraped_contacts, and phase2_urls.
+    Uses chunked deletes to avoid PostgREST limits.
+    """
+    sb = get_client()
+    tables = [
+        ("scraped_listings", "detail_url"),
+        ("scraped_contacts", "external_id"),
+        ("phase2_urls", "id")
+    ]
+    
+    for table, pk_col in tables:
+        logging.info(f"Clearing table {table}...")
+        while True:
+            resp = _retry(lambda t=table, pk=pk_col: sb.table(t).select(pk).limit(1000).execute())
+            if not resp.data:
+                break
+            
+            pks = [row[pk_col] for row in resp.data]
+            _retry(lambda t=table, pk=pk_col, keys=pks: sb.table(t).delete().in_(pk, keys).execute())
+            logging.info(f"  Deleted {len(pks)} rows from {table}.")
+            
+    logging.info("All Supabase tracking data cleared successfully!")
+
+
 # ── Internal utilities ────────────────────────────────────────────────────────
 
 def _paginate(sb, table: str, page_size: int = 1000) -> list[dict]:
