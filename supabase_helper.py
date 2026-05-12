@@ -199,22 +199,22 @@ def download_to_csv():
 
 def get_scraper_state() -> tuple[int, int]:
     """
-    Fetch the highest listing_id and contact_id from the scraper_state table.
+    Fetch the highest listing_id and contact_id from the phase2_urls table (special metadata row).
     Returns (max_listing_id, max_contact_id).
     """
     sb = get_client()
     try:
         response = _retry(
-            lambda: sb.table("scraper_state").select("*").eq("id", 1).execute()
+            lambda: sb.table("phase2_urls").select("type,status").eq("url", "STATE_METADATA").execute()
         )
         data = response.data
         if data:
             row = data[0]
-            max_list = int(row.get("max_listing_id", getattr(config, 'START_ID', 300000)))
-            max_cont = int(row.get("max_contact_id", getattr(config, 'START_ID', 300000)))
+            max_list = int(row.get("type", getattr(config, 'START_ID', 300000)))
+            max_cont = int(row.get("status", getattr(config, 'START_ID', 300000)))
             return max_list, max_cont
     except Exception as e:
-        logging.error(f"Could not read scraper_state: {e}")
+        logging.error(f"Could not read scraper state from phase2_urls: {e}")
     
     start_val = getattr(config, 'START_ID', 300000)
     return start_val, start_val
@@ -222,38 +222,45 @@ def get_scraper_state() -> tuple[int, int]:
 
 def save_scraper_state(max_listing_id: int, max_contact_id: int):
     """
-    Save the highest listing_id and contact_id to the scraper_state table.
+    Save the highest listing_id and contact_id to the phase2_urls table (special metadata row).
     """
     sb = get_client()
     try:
+        from datetime import datetime
         _retry(
-            lambda: sb.table("scraper_state").upsert({
-                "id": 1,
-                "max_listing_id": max_listing_id,
-                "max_contact_id": max_contact_id
-            }).execute()
+            lambda: sb.table("phase2_urls").upsert({
+                "url": "STATE_METADATA",
+                "type": str(max_listing_id),
+                "status": str(max_contact_id),
+                "run_date": datetime.utcnow().isoformat()
+            }, on_conflict="url").execute()
         )
-        logging.info(f"Saved scraper_state: max_listing_id={max_listing_id}, max_contact_id={max_contact_id}")
+        logging.info(f"Saved scraper state: max_listing_id={max_listing_id}, max_contact_id={max_contact_id}")
     except Exception as e:
-        logging.error(f"Could not save scraper_state: {e}")
+        logging.error(f"Could not save scraper state: {e}")
 
 
 def clear_all_supabase_data():
     """
-    Delete all rows from scraped_listings, scraped_contacts, and phase2_urls.
+    Delete all rows from scraped_listings, scraped_contacts, and phase2_urls (except metadata).
     Uses chunked deletes to avoid PostgREST limits.
     """
     sb = get_client()
     tables = [
         ("scraped_listings", "detail_url"),
         ("scraped_contacts", "external_id"),
-        ("phase2_urls", "id")
+        ("phase2_urls", "url")
     ]
     
     for table, pk_col in tables:
         logging.info(f"Clearing table {table}...")
         while True:
-            resp = _retry(lambda t=table, pk=pk_col: sb.table(t).select(pk).limit(1000).execute())
+            # For phase2_urls, we MUST exclude the metadata row
+            query = sb.table(table).select(pk_col).limit(1000)
+            if table == "phase2_urls":
+                query = query.neq("url", "STATE_METADATA")
+            
+            resp = _retry(lambda q=query: q.execute())
             if not resp.data:
                 break
             
