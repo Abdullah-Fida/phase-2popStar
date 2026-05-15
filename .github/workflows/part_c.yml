@@ -2,7 +2,7 @@ name: ProperStar Part C - Finish and Formatting
 on:
   workflow_dispatch:
   schedule:
-    - cron: '2 5 * * *' # 10:02 AM PKT (UTC+5) daily — 12 hours after Part A
+    - cron: '45 5 * * *' # 10:45 AM PKT (UTC+5) daily — 12 hours after Part A
 
 jobs:
   scrape_phase_3_finish:
