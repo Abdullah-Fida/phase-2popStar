@@ -334,7 +334,7 @@ async def main():
         buy_scraper = ProperStarPhase1(mode="buy", start_min=0, max_limit=50000000, concurrency=args.concurrency)
         rent_scraper = ProperStarPhase1(mode="rent", start_min=0, max_limit=100000, concurrency=args.concurrency)
         
-        timeout_hours = 5.0
+        timeout_hours = 2.0  # Stop after 2h so Phase 2 has time to upload to Supabase
         buy_scraper.start_time = time.time()
         buy_scraper.timeout_seconds = timeout_hours * 3600
         rent_scraper.start_time = buy_scraper.start_time

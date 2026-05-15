@@ -2,7 +2,7 @@ name: ProperStar Part C - Finish and Formatting
 on:
   workflow_dispatch:
   schedule:
-    - cron: '49 19 * * *' # Runs at 19:49 UTC daily (12 hours after part A)
+    - cron: '2 3 * * *' # 8:02 AM PKT (UTC+5) daily — 10 hours after Part A
 
 jobs:
   scrape_phase_3_finish:
@@ -25,7 +25,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install httpx supabase aiohttp
 
     - name: Install Playwright Browsers
       run: playwright install chromium

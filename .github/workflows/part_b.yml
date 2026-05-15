@@ -2,7 +2,7 @@ name: ProperStar Part B - Scrape Main
 on:
   workflow_dispatch:
   schedule:
-    - cron: '49 11 * * *' # Runs at 11:49 UTC daily (4 hours after part A)
+    - cron: '2 21 * * *' # 2:02 AM PKT (UTC+5) daily — 4 hours after Part A
 
 jobs:
   scrape_phase_3_run_1:
@@ -25,7 +25,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install httpx supabase
 
     - name: Install Playwright Browsers
       run: playwright install chromium
@@ -34,7 +33,7 @@ jobs:
       env:
         SUPABASE_URL: https://awesbiwvmehnlopbhmya.supabase.co
         SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3ZXNiaXd2bWVobmxvcGJobXlhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODQxNTc2NywiZXhwIjoyMDkzOTkxNzY3fQ.enWFYD4-z1GQ9Lj1PXZYBeC5wda3a3VdWjB-nWmw1sI
-      # We know this won't finish, it will timeout at 360m but save live to DB
+      # Will scrape as many pending URLs as possible within 6 hours, saving live to Supabase
       run: python phase3_scrape.py --workers 8 --supabase
 
     - name: Upload Interstitial Log Backup

@@ -1,6 +1,5 @@
 playwright
 playwright-stealth
-beautifulsoup4
-lxml
-
+httpx
+aiohttp
 supabase
